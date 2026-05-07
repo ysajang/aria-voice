@@ -45,6 +45,7 @@ class AriaForegroundService : Service() {
     companion object {
         private const val TAG = "AriaService"
         private const val NOTIFICATION_ID = 1001
+        private const val WAKE_WORD_DEBOUNCE_MS = 5000L
 
         const val ACTION_START = "com.ysajang.ariavoice.START"
         const val ACTION_STOP = "com.ysajang.ariavoice.STOP"
@@ -73,6 +74,8 @@ class AriaForegroundService : Service() {
     val pendingConfirmation: StateFlow<ConversationEntry?> = _pendingConfirmation.asStateFlow()
 
     private var wakeWordJob: Job? = null
+    /** Debounce guard: prevents re-triggering within WAKE_WORD_DEBOUNCE_MS */
+    private var lastWakeWordProcessedAt = 0L
 
     inner class AriaBinder : Binder() {
         fun getService(): AriaForegroundService = this@AriaForegroundService
@@ -141,6 +144,12 @@ class AriaForegroundService : Service() {
     }
 
     private fun onWakeWordDetected() {
+        val now = System.currentTimeMillis()
+        if (now - lastWakeWordProcessedAt < WAKE_WORD_DEBOUNCE_MS) {
+            Log.d(TAG, "Wake word ignored — debounce (${now - lastWakeWordProcessedAt}ms since last)")
+            return
+        }
+        lastWakeWordProcessedAt = now
         serviceScope.launch {
             processVoiceCommand()
         }
