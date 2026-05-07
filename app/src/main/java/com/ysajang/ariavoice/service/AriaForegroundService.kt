@@ -296,6 +296,7 @@ class AriaForegroundService : Service() {
     }
 
     private fun resumeWakeWordListening() {
+        lastWakeWordProcessedAt = System.currentTimeMillis() // debounce starts from resume
         wakeWordManager.start()
         _state.value = AriaState.LISTENING_WAKE_WORD
         updateNotification("대기 중...")
