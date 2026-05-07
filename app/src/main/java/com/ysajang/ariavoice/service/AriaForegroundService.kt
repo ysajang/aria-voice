@@ -17,6 +17,8 @@ import com.ysajang.ariavoice.data.ConversationEntry
 import com.ysajang.ariavoice.data.ConversationRepository
 import com.ysajang.ariavoice.data.PreferencesManager
 import com.ysajang.ariavoice.network.AriaApiClient
+import com.ysajang.ariavoice.speaker.CircularAudioBuffer
+import com.ysajang.ariavoice.speaker.SpeakerVerifier
 import com.ysajang.ariavoice.wakeword.WakeWordManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +58,8 @@ class AriaForegroundService : Service() {
     private lateinit var wakeWordManager: WakeWordManager
     private lateinit var sttManager: SttManager
     private lateinit var ttsManager: TtsManager
+    private lateinit var speakerVerifier: SpeakerVerifier
+    private val audioBuffer = CircularAudioBuffer()  // 1.5s ring buffer for speaker verification
     private val apiClient = AriaApiClient()
     val conversationRepo = ConversationRepository()
 
@@ -82,6 +86,20 @@ class AriaForegroundService : Service() {
         wakeWordManager = WakeWordManager(this)
         sttManager = SttManager(this)
         ttsManager = TtsManager(this)
+        speakerVerifier = SpeakerVerifier(this)
+
+        // Feed audio chunks to ring buffer for speaker verification
+        wakeWordManager.onAudioChunk = { chunk -> audioBuffer.write(chunk) }
+
+        // Load ONNX model on background thread
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                speakerVerifier.initialize()
+                Log.i(TAG, "SpeakerVerifier initialized (enrolled=${speakerVerifier.isEnrolled()})")
+            } catch (e: Exception) {
+                Log.e(TAG, "SpeakerVerifier init failed — verification disabled", e)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -138,9 +156,24 @@ class AriaForegroundService : Service() {
 
     private suspend fun processVoiceCommand() {
         try {
+            // Step 0: Grab audio snapshot BEFORE stopping (contains wake word utterance)
+            val wakeWordAudio = audioBuffer.snapshot()
+
             // Step 1: Stop wake word listening temporarily
             wakeWordManager.stopAndAwait()
             delay(300)
+
+            // Step 1.1: Speaker verification (if enrolled)
+            if (speakerVerifier.isEnrolled()) {
+                val verifyResult = speakerVerifier.verify(wakeWordAudio)
+                if (!verifyResult.accepted) {
+                    Log.w(TAG, "speaker_rejected: reason=${verifyResult.reason} " +
+                            "sim=${"%.4f".format(verifyResult.similarity)}")
+                    resumeWakeWordListening()
+                    return
+                }
+                Log.i(TAG, "speaker_accepted: sim=${"%.4f".format(verifyResult.similarity)}")
+            }
 
             // Step 1.5: Haptic feedback — 웨이크워드 감지 알림
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -293,6 +326,7 @@ class AriaForegroundService : Service() {
         wakeWordManager.release()
         sttManager.cancel()
         ttsManager.release()
+        speakerVerifier.release()
         apiClient.shutdown()
         serviceScope.cancel()
         super.onDestroy()

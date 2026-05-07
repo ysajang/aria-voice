@@ -76,7 +76,8 @@ class WakeWordEngine(
     private val models: List<WakeWordModel>,
     private val detectionMode: DetectionMode = DetectionMode.SINGLE_BEST,
     private val detectionCooldownMs: Long = 2000L,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default),
+    private val onAudioChunk: ((FloatArray) -> Unit)? = null
 ) {
     
     companion object {
@@ -183,6 +184,9 @@ class WakeWordEngine(
         recordingJob = scope.launch {
             audioRecorder.startRecording()
                 .collect { audioBuffer ->
+                    // Forward raw audio to external listener (e.g. speaker verification)
+                    onAudioChunk?.invoke(audioBuffer)
+
                     // Process all models in parallel and collect results
                     val detectionResults = models.mapIndexed { index, model ->
                         async {

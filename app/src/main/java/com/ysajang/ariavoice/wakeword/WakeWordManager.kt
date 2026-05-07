@@ -32,6 +32,9 @@ class WakeWordManager(private val context: Context) {
     private val _detections = MutableSharedFlow<WakeWordEvent>()
     val detections: SharedFlow<WakeWordEvent> = _detections.asSharedFlow()
 
+    /** Optional callback to receive raw audio chunks (for speaker verification). */
+    var onAudioChunk: ((FloatArray) -> Unit)? = null
+
     fun initialize(modelName: String, threshold: Float) {
         release()
 
@@ -49,7 +52,8 @@ class WakeWordManager(private val context: Context) {
                 models = models,
                 detectionMode = DetectionMode.SINGLE_BEST,
                 detectionCooldownMs = COOLDOWN_MS,
-                scope = scope
+                scope = scope,
+                onAudioChunk = onAudioChunk
             )
 
             // Collect from engine and re-emit as our own type
