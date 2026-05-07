@@ -38,14 +38,14 @@ class SpeakerVerifier(private val context: Context) {
         private const val KEY_THRESHOLD = "verify_threshold_v2"
         private const val KEY_ENROLLED_COUNT = "enrolled_count"
 
-        /** Default cosine-similarity threshold. Tune after real-device testing. */
-        const val DEFAULT_THRESHOLD = 0.65f
+        /** Default cosine-similarity threshold. Tuned for short wake word (~1s). */
+        const val DEFAULT_THRESHOLD = 0.50f
 
         /** Minimum audio samples to process (0.5 sec at 16kHz). */
         private const val MIN_SAMPLES = 8_000
 
-        /** Target audio window for verification (~1.5 sec at 16kHz). */
-        private const val TARGET_SAMPLES = 24_000
+        /** Target audio window for verification (~2 sec at 16kHz). */
+        private const val TARGET_SAMPLES = 32_000
     }
 
     // ── ONNX Runtime ──────────────────────────────────────────────────────
@@ -246,8 +246,9 @@ class SpeakerVerifier(private val context: Context) {
         prefs.edit()
             .remove(KEY_EMBEDDING)
             .remove(KEY_ENROLLED_COUNT)
+            .remove(KEY_THRESHOLD)
             .apply()
-        Log.i(TAG, "Enrollment cleared")
+        Log.i(TAG, "Enrollment cleared (threshold reset to default)")
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

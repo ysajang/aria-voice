@@ -6,9 +6,9 @@ package com.ysajang.ariavoice.speaker
  * Used to capture ~1.5 sec of audio around wake word detection
  * for speaker verification.
  *
- * @param capacity  Max samples to store (default: 24000 = 1.5s @ 16kHz).
+ * @param capacity  Max samples to store (default: 32000 = 2s @ 16kHz).
  */
-class CircularAudioBuffer(private val capacity: Int = 24_000) {
+class CircularAudioBuffer(private val capacity: Int = 32_000) {
 
     private val buffer = FloatArray(capacity)
     private var writePos = 0
