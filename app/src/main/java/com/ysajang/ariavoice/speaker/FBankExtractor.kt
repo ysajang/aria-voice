@@ -3,7 +3,7 @@ package com.ysajang.ariavoice.speaker
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.floor
-import kotlin.math.log
+import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sin
@@ -92,7 +92,7 @@ object FBankExtractor {
                 for (k in filter.indices) {
                     energy += powerSpectrum[k] * filter[k]
                 }
-                logMel[f][m] = log(maxOf(energy, 1e-10f))
+                logMel[f][m] = ln(maxOf(energy, 1e-10f).toDouble()).toFloat()
             }
         }
 
@@ -168,8 +168,8 @@ object FBankExtractor {
 
     // ── Mel filterbank construction ──────────────────────────────────────
 
-    private fun hzToMel(hz: Float): Float = 2595f * log10(1f + hz / 700f)
-    private fun melToHz(mel: Float): Float = 700f * (10f.pow(mel / 2595f) - 1f)
+    private fun hzToMel(hz: Float): Float = (2595.0 * log10(1.0 + hz / 700.0)).toFloat()
+    private fun melToHz(mel: Float): Float = (700.0 * (Math.pow(10.0, mel / 2595.0) - 1.0)).toFloat()
 
     private fun buildMelFilterbank(): Array<FloatArray> {
         val lowFreqMel = hzToMel(0f)
