@@ -27,3 +27,9 @@ data class AriaConfirmRequest(
     val confirmationId: String,
     val confirmed: Boolean
 )
+
+@Serializable
+data class TtsRequest(
+    val text: String,
+    val emotion: String = "neutral"
+)

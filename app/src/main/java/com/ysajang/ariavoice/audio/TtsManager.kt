@@ -1,17 +1,24 @@
 package com.ysajang.ariavoice.audio
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.MediaPlayer
 import android.media.ToneGenerator
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Locale
 import kotlin.coroutines.resume
 
-class TtsManager(context: Context) {
+class TtsManager(private val context: Context) {
     companion object {
+        private const val TAG = "TtsManager"
+
         fun stripMarkdown(text: String): String {
             return text
                 // TTS 발음 치환
@@ -38,6 +45,11 @@ class TtsManager(context: Context) {
 
     private var tts: TextToSpeech? = null
     private var isReady = false
+    private var mediaPlayer: MediaPlayer? = null
+
+    /** 마지막 응답 텍스트 — "다시 말해줘" 구현용 */
+    var lastSpokenText: String = ""
+        private set
 
     init {
         tts = TextToSpeech(context) { status ->
@@ -63,6 +75,7 @@ class TtsManager(context: Context) {
 
     fun speak(text: String) {
         if (!isReady) return
+        lastSpokenText = text
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aria_${System.currentTimeMillis()}")
     }
 
@@ -72,6 +85,7 @@ class TtsManager(context: Context) {
             return@suspendCancellableCoroutine
         }
 
+        lastSpokenText = text
         val utteranceId = "aria_${System.currentTimeMillis()}"
 
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -98,8 +112,67 @@ class TtsManager(context: Context) {
         }
     }
 
+    /**
+     * 서버에서 받은 WAV 오디오 바이트를 재생하고 완료까지 대기.
+     * @return true=성공 / false=실패 (on-device fallback 필요)
+     */
+    suspend fun speakFromAudioAndWait(audioBytes: ByteArray, originalText: String): Boolean =
+        suspendCancellableCoroutine { cont ->
+            try {
+                lastSpokenText = originalText
+
+                // WAV 바이트를 임시 파일에 저장
+                val tmpFile = File(context.cacheDir, "aria_tts_${System.currentTimeMillis()}.wav")
+                FileOutputStream(tmpFile).use { it.write(audioBytes) }
+
+                releaseMediaPlayer()
+                mediaPlayer = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                            .build()
+                    )
+                    setDataSource(tmpFile.absolutePath)
+                    setOnCompletionListener {
+                        tmpFile.delete()
+                        releaseMediaPlayer()
+                        if (cont.isActive) cont.resume(true)
+                    }
+                    setOnErrorListener { _, what, extra ->
+                        Log.e(TAG, "MediaPlayer error: what=$what extra=$extra")
+                        tmpFile.delete()
+                        releaseMediaPlayer()
+                        if (cont.isActive) cont.resume(false)
+                        true
+                    }
+                    prepare()
+                    start()
+                }
+
+                cont.invokeOnCancellation {
+                    tmpFile.delete()
+                    releaseMediaPlayer()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to play server audio", e)
+                if (cont.isActive) cont.resume(false)
+            }
+        }
+
+    private fun releaseMediaPlayer() {
+        try {
+            mediaPlayer?.stop()
+        } catch (_: Exception) {}
+        try {
+            mediaPlayer?.release()
+        } catch (_: Exception) {}
+        mediaPlayer = null
+    }
+
     fun stop() {
         tts?.stop()
+        releaseMediaPlayer()
     }
 
     fun release() {
@@ -107,5 +180,6 @@ class TtsManager(context: Context) {
         tts?.shutdown()
         tts = null
         isReady = false
+        releaseMediaPlayer()
     }
 }

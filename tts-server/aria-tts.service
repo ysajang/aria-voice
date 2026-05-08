@@ -1,0 +1,15 @@
+[Unit]
+Description=ARIA Voice TTS Server (MeloTTS Korean)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/aria-voice/tts-server
+EnvironmentFile=/opt/aria-voice/tts-server/.env
+ExecStart=/opt/aria-voice/tts-server/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -222,6 +222,22 @@ class AriaForegroundService : Service() {
                 return
             }
 
+            // "다시 말해줘" — 마지막 응답 재생
+            val repeatKeywords = listOf("다시 말해", "다시말해", "한번 더", "한번더", "뭐라고")
+            if (repeatKeywords.any { queryText.contains(it) }) {
+                val lastText = ttsManager.lastSpokenText
+                if (lastText.isNotBlank()) {
+                    _state.value = AriaState.SPEAKING
+                    updateNotification("다시 응답 중...")
+                    ttsManager.speakAndWait(lastText)
+                } else {
+                    ttsManager.speak("이전 응답이 없습니다")
+                }
+                delay(1000)
+                resumeWakeWordListening()
+                return
+            }
+
             // Step 3: Call ARIA API
             _state.value = AriaState.PROCESSING
             updateNotification("처리 중: $queryText")
@@ -264,7 +280,31 @@ class AriaForegroundService : Service() {
             } else {
                 _state.value = AriaState.SPEAKING
                 updateNotification("응답 중...")
-                ttsManager.speakAndWait(TtsManager.stripMarkdown(response.answer))
+
+                val spokenText = TtsManager.stripMarkdown(response.answer)
+
+                // 서버 TTS 시도 → 실패 시 on-device fallback
+                val ttsUrl = prefsManager.ttsServerUrl.first()
+                val ttsKey = prefsManager.ttsApiKey.first()
+                var usedServerTts = false
+
+                if (ttsUrl.isNotBlank()) {
+                    val ttsResult = apiClient.synthesize(
+                        ttsServerUrl = ttsUrl,
+                        ttsApiKey = ttsKey,
+                        text = spokenText,
+                        emotion = "neutral"  // TODO: ARIA Engine 응답에 감정 태그 포함 시 연동
+                    )
+                    ttsResult.onSuccess { audioBytes ->
+                        usedServerTts = ttsManager.speakFromAudioAndWait(audioBytes, spokenText)
+                    }.onFailure { e ->
+                        Log.w(TAG, "Server TTS failed, falling back to on-device: ${e.message}")
+                    }
+                }
+
+                if (!usedServerTts) {
+                    ttsManager.speakAndWait(spokenText)
+                }
             }
 
             // Step 6: Resume wake word listening (TTS 잔향 방지)

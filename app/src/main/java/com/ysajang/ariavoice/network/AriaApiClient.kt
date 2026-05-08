@@ -100,6 +100,45 @@ class AriaApiClient {
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()
     }
+
+    /**
+     * 서버 TTS 호출: text + emotion → WAV audio bytes
+     * @return WAV 오디오 바이트 또는 실패 시 null
+     */
+    suspend fun synthesize(
+        ttsServerUrl: String,
+        ttsApiKey: String,
+        text: String,
+        emotion: String = "neutral"
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            val requestBody = json.encodeToString(
+                TtsRequest.serializer(),
+                TtsRequest(text = text, emotion = emotion)
+            )
+
+            val requestBuilder = Request.Builder()
+                .url("$ttsServerUrl/v1/tts")
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody.toRequestBody(jsonMediaType))
+
+            if (ttsApiKey.isNotBlank()) {
+                requestBuilder.addHeader("X-API-Key", ttsApiKey.trim())
+            }
+
+            val response = client.newCall(requestBuilder.build()).execute()
+
+            if (!response.isSuccessful) {
+                throw AriaApiException(
+                    code = response.code,
+                    message = "TTS server error: ${response.code} ${response.message}"
+                )
+            }
+
+            response.body?.bytes()
+                ?: throw AriaApiException(code = 0, message = "Empty TTS response")
+        }
+    }
 }
 
 class AriaApiException(val code: Int, override val message: String) : Exception(message)
