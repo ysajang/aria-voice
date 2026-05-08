@@ -45,7 +45,7 @@ class AriaForegroundService : Service() {
     companion object {
         private const val TAG = "AriaService"
         private const val NOTIFICATION_ID = 1001
-        private const val WAKE_WORD_DEBOUNCE_MS = 5000L
+        private const val WAKE_WORD_DEBOUNCE_MS = 3000L
 
         const val ACTION_START = "com.ysajang.ariavoice.START"
         const val ACTION_STOP = "com.ysajang.ariavoice.STOP"

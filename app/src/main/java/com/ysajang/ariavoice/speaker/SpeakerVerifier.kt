@@ -90,7 +90,7 @@ class SpeakerVerifier(private val context: Context) {
      * @param audioRaw  FloatArray from AudioRecorder (short→float, ~-32768..32768).
      * @return FloatArray(192) L2-normalized, or null on failure.
      */
-    fun extractEmbedding(audioRaw: FloatArray, debugLabel: String? = null): FloatArray? {
+    fun extractEmbedding(audioRaw: FloatArray): FloatArray? {
         val session = ortSession ?: run {
             Log.e(TAG, "Not initialized — call initialize() first")
             return null
@@ -114,23 +114,12 @@ class SpeakerVerifier(private val context: Context) {
             return null
         }
 
-        // Debug: save raw audio as WAV (after VAD trim)
-        if (debugLabel != null) {
-            saveDebugWav(samples, debugLabel)
-        }
-
         // FBank feature extraction
         val fbank = FBankExtractor.extract(samples) ?: run {
             Log.e(TAG, "FBank extraction failed")
             return null
         }
         Log.d(TAG, "FBank: ${fbank.size} frames x ${fbank[0].size} bins")
-
-        // Debug: log first FBank frame
-        if (debugLabel != null && fbank.isNotEmpty()) {
-            val f0 = fbank[0].take(5).joinToString { "%.4f".format(it) }
-            Log.d(TAG, "FBank[0][:5] = [$f0]")
-        }
 
         return try {
             // Flatten to 1D for OnnxTensor: shape (1, T, 80)
@@ -153,57 +142,10 @@ class SpeakerVerifier(private val context: Context) {
             results.close()
 
             // L2 normalize
-            val emb = l2Normalize(rawEmb)
-
-            // Debug: log embedding stats
-            if (debugLabel != null) {
-                val norm = sqrt(rawEmb.map { it * it }.sum())
-                val e5 = emb.take(5).joinToString { "%.4f".format(it) }
-                Log.i(TAG, "[$debugLabel] emb[:5]=[$e5] rawNorm=%.4f".format(norm))
-            }
-
-            emb
+            l2Normalize(rawEmb)
         } catch (e: Exception) {
             Log.e(TAG, "ONNX inference error: ${e.message}", e)
             null
-        }
-    }
-
-    /**
-     * Save raw audio as 16-bit WAV for offline debugging.
-     * Files go to app's internal filesDir: /data/data/.../files/debug_*.wav
-     */
-    private fun saveDebugWav(audio: FloatArray, label: String) {
-        try {
-            val file = java.io.File(context.filesDir, "debug_${label}.wav")
-            val shortData = ShortArray(audio.size) { audio[it].toInt().coerceIn(-32768, 32767).toShort() }
-            val byteData = ByteBuffer.allocate(shortData.size * 2)
-                .order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                .apply { shortData.forEach { putShort(it) } }
-                .array()
-
-            java.io.FileOutputStream(file).use { fos ->
-                val dataSize = byteData.size
-                val header = ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                header.put("RIFF".toByteArray())
-                header.putInt(36 + dataSize)
-                header.put("WAVE".toByteArray())
-                header.put("fmt ".toByteArray())
-                header.putInt(16)           // chunk size
-                header.putShort(1)          // PCM
-                header.putShort(1)          // mono
-                header.putInt(16000)        // sample rate
-                header.putInt(32000)        // byte rate
-                header.putShort(2)          // block align
-                header.putShort(16)         // bits per sample
-                header.put("data".toByteArray())
-                header.putInt(dataSize)
-                fos.write(header.array())
-                fos.write(byteData)
-            }
-            Log.i(TAG, "Debug WAV saved: ${file.absolutePath} (${audio.size} samples)")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to save debug WAV: ${e.message}")
         }
     }
 
@@ -222,7 +164,7 @@ class SpeakerVerifier(private val context: Context) {
         }
 
         val embeddings = audioSamples.mapIndexedNotNull { idx, audio ->
-            extractEmbedding(audio, debugLabel = "enroll_$idx")
+            extractEmbedding(audio)
         }
         if (embeddings.size < 3) {
             Log.e(TAG, "Enrollment failed: only ${embeddings.size}/${audioSamples.size} valid")
@@ -267,7 +209,7 @@ class SpeakerVerifier(private val context: Context) {
                 Log.w(TAG, "speaker_verify_skip: no enrollment → passthrough")
             }
 
-        val query = extractEmbedding(audioRaw, debugLabel = "verify")
+        val query = extractEmbedding(audioRaw)
             ?: return VerifyResult(
                 accepted = false,
                 similarity = 0f,
@@ -279,11 +221,6 @@ class SpeakerVerifier(private val context: Context) {
         val similarity = cosineSimilarity(query, stored)
         val threshold = getThreshold()
         val accepted = similarity >= threshold
-
-        // Debug: log both embeddings for comparison
-        val storedE5 = stored.take(5).joinToString { "%.4f".format(it) }
-        val queryE5 = query.take(5).joinToString { "%.4f".format(it) }
-        Log.d(TAG, "stored[:5]=[$storedE5] query[:5]=[$queryE5]")
 
         if (accepted) {
             Log.i(TAG, "speaker_accepted: sim=${"%.4f".format(similarity)} thr=$threshold")

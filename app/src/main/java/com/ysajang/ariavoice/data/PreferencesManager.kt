@@ -21,7 +21,7 @@ class PreferencesManager(private val context: Context) {
         private val KEY_WAKE_WORD_MODEL = stringPreferencesKey("wake_word_model")
 
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:8100"
-        const val DEFAULT_SENSITIVITY = 0.7f
+        const val DEFAULT_SENSITIVITY = 0.5f
         const val DEFAULT_WAKE_WORD_MODEL = "aria.onnx"
     }
 
