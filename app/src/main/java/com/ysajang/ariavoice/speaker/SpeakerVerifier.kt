@@ -39,7 +39,7 @@ class SpeakerVerifier(private val context: Context) {
         private const val KEY_ENROLLED_COUNT = "enrolled_count"
 
         /** Default cosine-similarity threshold. Tuned for short wake word (~1s). */
-        const val DEFAULT_THRESHOLD = 0.50f
+        const val DEFAULT_THRESHOLD = 0.45f
 
         /** Minimum audio samples to process (0.25 sec at 16kHz). */
         private const val MIN_SAMPLES = 4_000
