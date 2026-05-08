@@ -39,10 +39,10 @@ class SpeakerVerifier(private val context: Context) {
         private const val KEY_ENROLLED_COUNT = "enrolled_count"
 
         /** Default cosine-similarity threshold. Tuned for short wake word (~1s). */
-        const val DEFAULT_THRESHOLD = 0.60f
+        const val DEFAULT_THRESHOLD = 0.50f
 
-        /** Minimum audio samples to process (0.5 sec at 16kHz). */
-        private const val MIN_SAMPLES = 8_000
+        /** Minimum audio samples to process (0.25 sec at 16kHz). */
+        private const val MIN_SAMPLES = 4_000
 
         /** Target audio window for verification (~2 sec at 16kHz). */
         private const val TARGET_SAMPLES = 32_000
@@ -332,7 +332,7 @@ class SpeakerVerifier(private val context: Context) {
     private fun trimSilence(audio: FloatArray): FloatArray {
         val frameSize = 320    // 20ms @ 16kHz
         val hopSize = 160      // 10ms hop
-        val padFrames = 5      // 50ms padding on each side
+        val minOutputSamples = 16000  // keep at least 1 second
         val numFrames = (audio.size - frameSize) / hopSize + 1
         if (numFrames < 3) return audio
 
@@ -347,11 +347,11 @@ class SpeakerVerifier(private val context: Context) {
             sqrt(sum / frameSize)
         }
 
-        // Adaptive threshold: 20% of max energy (above noise floor)
+        // Adaptive threshold: 15% of max energy
         val maxEnergy = energy.maxOrNull() ?: return audio
-        val threshold = maxEnergy * 0.2f
+        val threshold = maxEnergy * 0.15f
 
-        // Find first and last frames above threshold
+        // Find speech boundaries
         var firstActive = 0
         for (i in energy.indices) {
             if (energy[i] > threshold) { firstActive = i; break }
@@ -361,17 +361,24 @@ class SpeakerVerifier(private val context: Context) {
             if (energy[i] > threshold) { lastActive = i; break }
         }
 
-        // Add padding
-        firstActive = maxOf(0, firstActive - padFrames)
-        lastActive = minOf(energy.size - 1, lastActive + padFrames)
+        // Convert to sample indices
+        var startSample = firstActive * hopSize
+        var endSample = minOf(audio.size, lastActive * hopSize + frameSize)
 
-        // Convert frame indices back to sample indices
-        val startSample = firstActive * hopSize
-        val endSample = minOf(audio.size, lastActive * hopSize + frameSize)
+        // Ensure minimum output length — expand symmetrically around speech center
+        val currentLen = endSample - startSample
+        if (currentLen < minOutputSamples) {
+            val center = (startSample + endSample) / 2
+            startSample = maxOf(0, center - minOutputSamples / 2)
+            endSample = minOf(audio.size, startSample + minOutputSamples)
+            if (endSample - startSample < minOutputSamples) {
+                startSample = maxOf(0, endSample - minOutputSamples)
+            }
+        }
 
         val trimmed = audio.copyOfRange(startSample, endSample)
         Log.d(TAG, "VAD trim: ${audio.size} → ${trimmed.size} samples " +
-                "(frames $firstActive..$lastActive, maxE=%.0f thr=%.0f)".format(maxEnergy, threshold))
+                "(maxE=%.0f thr=%.0f)".format(maxEnergy, threshold))
         return trimmed
     }
 
