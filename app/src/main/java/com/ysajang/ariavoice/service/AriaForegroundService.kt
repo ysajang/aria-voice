@@ -70,6 +70,9 @@ class AriaForegroundService : Service() {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
+    /** Real-time wake word confidence score for UI diagnostics. */
+    val wakeWordScore: StateFlow<Float> get() = wakeWordManager.latestScore
+
     private val _pendingConfirmation = MutableStateFlow<ConversationEntry?>(null)
     val pendingConfirmation: StateFlow<ConversationEntry?> = _pendingConfirmation.asStateFlow()
 

@@ -9,8 +9,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class WakeWordEvent(
@@ -31,6 +34,10 @@ class WakeWordManager(private val context: Context) {
 
     private val _detections = MutableSharedFlow<WakeWordEvent>()
     val detections: SharedFlow<WakeWordEvent> = _detections.asSharedFlow()
+
+    private val _latestScore = MutableStateFlow(0f)
+    /** Real-time wake word confidence score (0.0~1.0) for UI diagnostics. */
+    val latestScore: StateFlow<Float> = _latestScore.asStateFlow()
 
     /** Optional callback to receive raw audio chunks (for speaker verification). */
     var onAudioChunk: ((FloatArray) -> Unit)? = null
@@ -66,6 +73,13 @@ class WakeWordManager(private val context: Context) {
                             timestamp = detection.timestamp
                         )
                     )
+                }
+            }
+
+            // Forward real-time scores for UI diagnostics
+            scope.launch {
+                engine?.scores?.collect { wakeWordScore ->
+                    _latestScore.value = wakeWordScore.score
                 }
             }
 

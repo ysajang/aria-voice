@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
     private val defaultError = MutableStateFlow<String?>(null)
     private val defaultConfirmation = MutableStateFlow<ConversationEntry?>(null)
     private val defaultConversations = MutableStateFlow<List<ConversationEntry>>(emptyList())
-
+    private val defaultWakeWordScore = MutableStateFlow(0f)
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as AriaForegroundService.AriaBinder
@@ -112,11 +112,13 @@ class MainActivity : ComponentActivity() {
                 val errorFlow = remember(isBound) { ariaService?.lastError ?: defaultError }
                 val confirmFlow = remember(isBound) { ariaService?.pendingConfirmation ?: defaultConfirmation }
                 val convFlow = remember(isBound) { ariaService?.conversationRepo?.conversations ?: defaultConversations }
+                val scoreFlow = remember(isBound) { ariaService?.wakeWordScore ?: defaultWakeWordScore }
 
                 val state by stateFlow.collectAsState()
                 val lastError by errorFlow.collectAsState()
                 val pendingConfirmation by confirmFlow.collectAsState()
                 val conversations by convFlow.collectAsState()
+                val wakeWordScore by scoreFlow.collectAsState()
 
                 val serverUrl by prefsManager.serverUrl.collectAsState(
                     initial = PreferencesManager.DEFAULT_SERVER_URL
@@ -182,6 +184,7 @@ class MainActivity : ComponentActivity() {
                                 lastError = lastError,
                                 pendingConfirmation = pendingConfirmation,
                                 lastConversation = conversations.firstOrNull(),
+                                wakeWordScore = wakeWordScore,
                                 onMicClick = {
                                     if (isBound) {
                                         ariaService?.manualTrigger()

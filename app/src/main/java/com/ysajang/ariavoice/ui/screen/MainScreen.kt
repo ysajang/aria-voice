@@ -38,6 +38,7 @@ fun MainScreen(
     lastError: String?,
     pendingConfirmation: ConversationEntry?,
     lastConversation: ConversationEntry?,
+    wakeWordScore: Float = 0f,
     onMicClick: () -> Unit,
     onToggleService: () -> Unit,
     onConfirm: (String, Boolean) -> Unit
@@ -71,6 +72,15 @@ fun MainScreen(
             style = MaterialTheme.typography.bodyLarge,
             color = AriaOnSurfaceDim
         )
+
+        // Real-time wake word score (diagnostic)
+        AnimatedVisibility(visible = state == AriaState.LISTENING_WAKE_WORD && wakeWordScore > 0.001f) {
+            Text(
+                text = "score: ${"%.4f".format(wakeWordScore)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (wakeWordScore > 0.5f) AriaSuccess else AriaOnSurfaceDim
+            )
+        }
 
         Spacer(modifier = Modifier.height(48.dp))
 
