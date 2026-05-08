@@ -101,13 +101,20 @@ class SpeakerVerifier(private val context: Context) {
         }
 
         // Trim to last TARGET_SAMPLES if longer
-        val samples = if (audioRaw.size > TARGET_SAMPLES) {
+        var samples = if (audioRaw.size > TARGET_SAMPLES) {
             audioRaw.copyOfRange(audioRaw.size - TARGET_SAMPLES, audioRaw.size)
         } else {
             audioRaw
         }
 
-        // Debug: save raw audio as WAV
+        // VAD: trim silence — only keep speech region
+        samples = trimSilence(samples)
+        if (samples.size < MIN_SAMPLES) {
+            Log.w(TAG, "After VAD trim: ${samples.size} samples — too short")
+            return null
+        }
+
+        // Debug: save raw audio as WAV (after VAD trim)
         if (debugLabel != null) {
             saveDebugWav(samples, debugLabel)
         }
@@ -317,6 +324,56 @@ class SpeakerVerifier(private val context: Context) {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /**
+     * Simple energy-based VAD: trim leading/trailing silence.
+     * Keeps only the speech region + padding.
+     */
+    private fun trimSilence(audio: FloatArray): FloatArray {
+        val frameSize = 320    // 20ms @ 16kHz
+        val hopSize = 160      // 10ms hop
+        val padFrames = 5      // 50ms padding on each side
+        val numFrames = (audio.size - frameSize) / hopSize + 1
+        if (numFrames < 3) return audio
+
+        // Compute frame-level RMS energy
+        val energy = FloatArray(numFrames) { f ->
+            val offset = f * hopSize
+            var sum = 0f
+            for (i in 0 until frameSize) {
+                val s = audio[offset + i]
+                sum += s * s
+            }
+            sqrt(sum / frameSize)
+        }
+
+        // Adaptive threshold: 20% of max energy (above noise floor)
+        val maxEnergy = energy.maxOrNull() ?: return audio
+        val threshold = maxEnergy * 0.2f
+
+        // Find first and last frames above threshold
+        var firstActive = 0
+        for (i in energy.indices) {
+            if (energy[i] > threshold) { firstActive = i; break }
+        }
+        var lastActive = energy.size - 1
+        for (i in energy.indices.reversed()) {
+            if (energy[i] > threshold) { lastActive = i; break }
+        }
+
+        // Add padding
+        firstActive = maxOf(0, firstActive - padFrames)
+        lastActive = minOf(energy.size - 1, lastActive + padFrames)
+
+        // Convert frame indices back to sample indices
+        val startSample = firstActive * hopSize
+        val endSample = minOf(audio.size, lastActive * hopSize + frameSize)
+
+        val trimmed = audio.copyOfRange(startSample, endSample)
+        Log.d(TAG, "VAD trim: ${audio.size} → ${trimmed.size} samples " +
+                "(frames $firstActive..$lastActive, maxE=%.0f thr=%.0f)".format(maxEnergy, threshold))
+        return trimmed
+    }
 
     private fun loadEnrolledEmbedding(): FloatArray? {
         val encoded = prefs.getString(KEY_EMBEDDING, null) ?: return null
