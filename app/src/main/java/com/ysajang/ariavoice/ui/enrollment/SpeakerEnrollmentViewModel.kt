@@ -35,6 +35,8 @@ class SpeakerEnrollmentViewModel(application: Application) : AndroidViewModel(ap
         private const val RECORD_DURATION_MS = 2000L
         private const val TOTAL_SAMPLES = 5
         private const val RECORD_SAMPLES = (SAMPLE_RATE * RECORD_DURATION_MS / 1000).toInt() // 32000
+        /** Minimum max-amplitude to accept a recording (reject near-silence). */
+        private const val MIN_AMPLITUDE = 2000f
     }
 
     private val verifier = SpeakerVerifier(application)
@@ -78,30 +80,62 @@ class SpeakerEnrollmentViewModel(application: Application) : AndroidViewModel(ap
                 val audioSamples = mutableListOf<FloatArray>()
 
                 for (i in 1..TOTAL_SAMPLES) {
-                    // Countdown
-                    _state.value = _state.value.copy(
-                        phase = Phase.COUNTDOWN,
-                        currentSample = i,
-                        message = "$i/$TOTAL_SAMPLES — 준비..."
-                    )
-                    delay(800)
+                    var audio: FloatArray? = null
+                    var retryCount = 0
+                    val maxRetries = 3
 
-                    // Record
-                    _state.value = _state.value.copy(
-                        phase = Phase.RECORDING,
-                        message = "$i/$TOTAL_SAMPLES — \"아리아\"라고 말해주세요"
-                    )
+                    while (retryCount < maxRetries) {
+                        // Countdown
+                        _state.value = _state.value.copy(
+                            phase = Phase.COUNTDOWN,
+                            currentSample = i,
+                            message = if (retryCount == 0) {
+                                "$i/$TOTAL_SAMPLES — 준비..."
+                            } else {
+                                "$i/$TOTAL_SAMPLES — 더 크게 말해주세요!"
+                            }
+                        )
+                        delay(if (retryCount == 0) 1200L else 1500L)
 
-                    val audio = withContext(Dispatchers.IO) { recordAudio() }
+                        // Record
+                        _state.value = _state.value.copy(
+                            phase = Phase.RECORDING,
+                            message = "$i/$TOTAL_SAMPLES — \"아리아\"라고 말해주세요"
+                        )
+
+                        val recorded = withContext(Dispatchers.IO) { recordAudio() }
+                        if (recorded == null) {
+                            _state.value = _state.value.copy(
+                                phase = Phase.ERROR,
+                                message = "녹음 실패 — 마이크 권한을 확인하세요"
+                            )
+                            return@launch
+                        }
+
+                        // Energy check: reject near-silence
+                        val maxAmp = recorded.maxOfOrNull { kotlin.math.abs(it) } ?: 0f
+                        Log.i(TAG, "Sample $i attempt ${retryCount + 1}: " +
+                                "${recorded.size} samples, maxAmp=%.0f".format(maxAmp))
+
+                        if (maxAmp >= MIN_AMPLITUDE) {
+                            audio = recorded
+                            break
+                        }
+
+                        Log.w(TAG, "Sample $i too quiet (maxAmp=%.0f < $MIN_AMPLITUDE), retrying".format(maxAmp))
+                        retryCount++
+                    }
+
                     if (audio == null) {
                         _state.value = _state.value.copy(
                             phase = Phase.ERROR,
-                            message = "녹음 실패 — 마이크 권한을 확인하세요"
+                            message = "녹음이 너무 조용합니다 — 마이크 가까이에서 다시 시도하세요"
                         )
                         return@launch
                     }
+
                     audioSamples.add(audio)
-                    Log.i(TAG, "Sample $i/${TOTAL_SAMPLES} recorded: ${audio.size} samples")
+                    Log.i(TAG, "Sample $i/${TOTAL_SAMPLES} accepted: ${audio.size} samples")
 
                     // Brief pause between recordings
                     if (i < TOTAL_SAMPLES) {
